@@ -1,5 +1,6 @@
 using System.Collections;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 using UnityEngine;
 using System.Linq;
 using static AI;
@@ -7,7 +8,7 @@ using static AI;
 public class gridGenerator : Singleton<gridGenerator>
 {
     [Header("game controller")]
-    [SerializeField] bool showNumbers = false;
+    [SerializeField] internal bool showNumbers = false, UseFastCalculation = true, useRandomInCase = false;
 
     [Header("Board")]
     [SerializeField] Cell cellPrefab;
@@ -21,6 +22,8 @@ public class gridGenerator : Singleton<gridGenerator>
     internal static List<Cell> cells = new();
     internal static List<Vector3> cellsPos = new();
     internal static List<Troop> troops = new();
+    internal static List<Troop> enemyTroops = new();
+    internal static List<Troop> PlayerTroops = new();
     internal static Camera cam;
     internal static Troop currentSelectedTroop = null;
 
@@ -36,6 +39,10 @@ public class gridGenerator : Singleton<gridGenerator>
 
     void spawnInitials()
     {
+        cells = new();
+        troops = new();
+        enemyTroops = new();
+        PlayerTroops = new();
         for (int y = 0; y < 8; y++)
         {
             for (int x = 0; x < 8; x++)
@@ -116,20 +123,27 @@ public class gridGenerator : Singleton<gridGenerator>
         currentTroop.Init(place, troopType, isPlayer);
     }
 
-    internal static void takeDown(int index)
+    internal static void takeDown(int attackTroop, int defentTroop, out bool gameContinue)
     {
-        var takeDownTroop = cells[index].troop;
-        if (takeDownTroop != null)
+        if (GameManager.GameContinues(attackTroop, defentTroop))
         {
-            takeDownTroop.cell.troop = null;
-            troops.Remove(takeDownTroop);
-            Destroy(takeDownTroop.gameObject);
+            gameContinue = true;
+            var takeDownTroop = cells[defentTroop].troop;
+            if (takeDownTroop != null)
+            {
+                takeDownTroop.cell.troop = null;
+                troops.Remove(takeDownTroop);
+                Destroy(takeDownTroop.gameObject);
+            }
+        }
+        else
+        {
+            gameContinue = false;
         }
     }
 
     internal static void switchTurn()
     {
-        Debug.Log("hello");
         IsPlayerTurn = !IsPlayerTurn;
         if (IsPlayerTurn)
         {
@@ -140,4 +154,143 @@ public class gridGenerator : Singleton<gridGenerator>
             searchBestMove();
         }
     }
+
+    public async Task<(int score, int? troopIndex, int? moveIndex)> GoDeep(ChessBoard chessBoard, int depth, bool isPlayer)
+    {
+        int score = int.MinValue;
+        int? troopIndex = null, moveIndex = null;
+
+        if (depth <= 1)
+        {
+            int maxScore = 0;
+            foreach (var item in chessBoard.pieces)
+            {
+                if (item.troopType != TroopType.none)
+                {
+                    if (item.isWhite == (isPlayer == isPlayerWhite))
+                    {
+                        maxScore += (int)item.troopType;
+                    }
+                    else
+                    {
+                        maxScore -= (int)item.troopType;
+                    }
+                }
+            }
+            score = maxScore;
+            Debug.LogError(maxScore);
+        }
+        else
+        {
+            int index = 0;
+            foreach (var item in chessBoard.pieces)
+            {
+                if (item.troopType != TroopType.none && ((isPlayer) ? isPlayerWhite : isPlayerWhite == false))
+                {
+                    var result = chessBoard.getAllPredictable(item.troopType, index);
+                    if (isPlayer == false)
+                    {
+                        string log = index.ToString();
+                        foreach (var _log in result.Item1)
+                        {
+                            log += "-" + _log;
+                        }
+                    }
+                    foreach (var _item in result.Item1)
+                    {
+                        int currentScore = 0;
+                        if (result.Item2.Contains(_item))
+                        {
+                            currentScore = (int)chessBoard.pieces[_item].troopType;
+                        }
+                        var newPieces = chessBoard.swipeAndReturnNew(index, _item);
+                        ChessBoard _chessBoard = new(newPieces);
+                        var returnValue = await GoDeep(_chessBoard, depth - 1, !isPlayer);
+                        Debug.LogError(returnValue.score + "," + isPlayer);
+                        currentScore = returnValue.score;
+                        if (isPlayer && score > currentScore)
+                        {
+                            score = currentScore;
+                            troopIndex = index;
+                            moveIndex = _item;
+                        }
+                        else if (isPlayer == false && score < currentScore)
+                        {
+                            score = currentScore;
+                            troopIndex = index;
+                            moveIndex = _item;
+                        }
+                    }
+                }
+                index++;
+            }
+        }
+
+        if (isPlayer)
+        {
+            score = -score;
+        }
+        return (score, troopIndex, moveIndex);
+    }
+
+    [ContextMenu("Highlight enemy")]
+    void HighlightEnemy()
+    {
+        ChessBoard chessBoard = new(cells);
+        var result = chessBoard.getAllPossibleMoves(false);
+
+        foreach (var item in result)
+        {
+            Debug.DrawLine(cells[item.index].transform.position + new Vector3(0, 3, 0), cells[item.move].transform.position + new Vector3(0, 3, 0), Color.red, 10);
+            cells[item.move].moveLit(true);
+        }
+    }
+
+    // public (int score, int? troopIndex, int? moveIndex) GoDeep(ChessBoard chessBoard, int depth, bool isPlayer)
+    // {
+    //     Debug.Log("Deep 1");
+    //     int? troopIndex = null, MoveIndex = null;
+    //     if (depth < 1)
+    //     {
+    //         Debug.Log("Deep 2");
+    //         int Evaluation = chessBoard.getEvaluation((isPlayer) ? !isPlayerWhite : isPlayerWhite);
+    //         Debug.Log((isPlayer) ? -Evaluation : Evaluation);
+    //         return (((isPlayer) ? -Evaluation : Evaluation), troopIndex, MoveIndex);
+    //     }
+    //     else
+    //     {
+    //         Debug.Log("Deep 3");
+    //         int index = 0;
+    //         int HeighestEvaluation = int.MinValue;
+    //         foreach (var item in chessBoard.pieces)
+    //         {
+    //             Debug.Log("Deep 3.5");
+    //             if (item.troopType != null && (item.isWhite == ((isPlayer) ? !isPlayerWhite : isPlayerWhite)))
+    //             {
+    //                 Debug.Log("Deep 4");
+    //                 var result = chessBoard.getAllPredictable(item.troopType ?? TroopType.soldier, index);
+    //                 int _index = 0;
+    //                 foreach (var _item in result.Item1)
+    //                 {
+    //                     var _troopType = chessBoard.pieces[_item].troopType;
+    //                     ChessBoard _chessboard = new(chessBoard.swipeAndReturnNew(index, _index));
+    //                     int Evaluation = ((_troopType == null) ? 0 : (int)_troopType) + ((_troopType != TroopType.king) ? GoDeep(_chessboard, depth - 1, !isPlayer).score : 0);
+    //                     if (Evaluation > HeighestEvaluation)
+    //                     {
+    //                         HeighestEvaluation = Evaluation;
+    //                         troopIndex = index;
+    //                         MoveIndex = _item;
+    //                         Debug.Log("Deep 5 -> " + HeighestEvaluation + "," + troopIndex + "," + MoveIndex + "," + isPlayer + "," + depth);
+    //                     }
+    //                     _index++;
+    //                 }
+    //                 Debug.Log("Deep 6");
+    //             }
+    //             index++;
+    //             Debug.Log("Deep 7");
+    //         }
+    //         Debug.LogError("Deep 8");
+    //         return (HeighestEvaluation, troopIndex, MoveIndex);
+    //     }
+    // }
 }

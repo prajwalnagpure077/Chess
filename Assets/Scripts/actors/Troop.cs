@@ -12,7 +12,7 @@ public class Troop : MonoBehaviour
 
     internal Cell cell;
     internal TroopType troopType;
-    internal bool isWhite;
+    internal bool isWhite, isPlayer;
 
     List<int> predictableMoves = new();
     internal List<int> targetMoves = new();
@@ -21,6 +21,8 @@ public class Troop : MonoBehaviour
     internal void Init(int place, TroopType troopType, bool isPlayer)
     {
         troops.Add(this);
+
+        this.isPlayer = isPlayer;
 
         if (isPlayerWhite)
         {
@@ -35,7 +37,12 @@ public class Troop : MonoBehaviour
 
         if (isPlayer == false)
         {
+            enemyTroops.Add(this);
             Destroy(collider);
+        }
+        else
+        {
+            PlayerTroops.Add(this);
         }
 
         this.troopType = troopType;
@@ -136,124 +143,24 @@ public class Troop : MonoBehaviour
         predictableMoves.Clear();
         targetMoves.Clear();
         ChessBoard chessBoard = new(cells);
-        switch (troopType)
+        var predictedData = chessBoard.getAllPredictable(troopType, cell.index);
+        predictableMoves = predictedData.Item1;
+        targetMoves = predictedData.Item2;
+        if (troopType == TroopType.king)
         {
-            case TroopType.soldier:
-                castRay(ref chessBoard, 0, -1, 1, false, true);
-                castRay(ref chessBoard, 1, -1, 1, true);
-                castRay(ref chessBoard, -1, -1, 1, true);
-                break;
-            case TroopType.camel:
-                castRay(ref chessBoard, 1, 1, 8);
-                castRay(ref chessBoard, -1, 1, 8);
-                castRay(ref chessBoard, 1, -1, 8);
-                castRay(ref chessBoard, -1, -1, 8);
-                break;
-            case TroopType.elephant:
-                castRay(ref chessBoard, 0, 1, 8);
-                castRay(ref chessBoard, 0, -1, 8);
-                castRay(ref chessBoard, 1, 0, 8);
-                castRay(ref chessBoard, -1, 0, 8);
-                break;
-            case TroopType.horse:
-                castRay(ref chessBoard, 2, 1, 1);
-                castRay(ref chessBoard, 2, -1, 1);
-                castRay(ref chessBoard, -2, 1, 1);
-                castRay(ref chessBoard, -2, -1, 1);
-                castRay(ref chessBoard, 1, 2, 1);
-                castRay(ref chessBoard, -1, 2, 1);
-                castRay(ref chessBoard, 1, -2, 1);
-                castRay(ref chessBoard, -1, -2, 1);
-                break;
-            case TroopType.queen:
-                castRay(ref chessBoard, 0, 1, 8);
-                castRay(ref chessBoard, 0, -1, 8);
-                castRay(ref chessBoard, 1, 0, 8);
-                castRay(ref chessBoard, -1, 0, 8);
-                castRay(ref chessBoard, 1, 1, 8);
-                castRay(ref chessBoard, -1, 1, 8);
-                castRay(ref chessBoard, 1, -1, 8);
-                castRay(ref chessBoard, -1, -1, 8);
-                break;
-            case TroopType.king:
-                castRay(ref chessBoard, 0, 1, 1);
-                castRay(ref chessBoard, 0, -1, 1);
-                castRay(ref chessBoard, 1, 0, 1);
-                castRay(ref chessBoard, -1, 0, 1);
-                castRay(ref chessBoard, 1, 1, 1);
-                castRay(ref chessBoard, -1, 1, 1);
-                castRay(ref chessBoard, 1, -1, 1);
-                castRay(ref chessBoard, -1, -1, 1);
-                break;
-        }
-    }
-
-    void castRay(ref ChessBoard chessBoard, int x, int y, int steps, bool soldierSide = false, bool soldierFront = false)
-    {
-        y = (isPlayerWhite == isWhite) ? y : -y;
-        var returnedMoves = chessBoard.findPath(cell.index, x, y, steps, out int? target);
-
-        //soldierSide
-        if (soldierSide)
-        {
-            if (target != null)
+            var ignoreMoves = chessBoard.getIllegalKingMoves(cell.index);
+            foreach (var item in ignoreMoves)
             {
-                predictableMoves.Add(target ?? 0);
-                targetMoves.Add(target ?? 0);
-            }
-            return;
-        }
-
-        //soldierFront
-        if (soldierFront)
-        {
-            if (target == null)
-            {
-                foreach (var item in returnedMoves)
+                if (predictableMoves.Contains(item))
                 {
-                    predictableMoves.Add(item);
+                    predictableMoves.Remove(item);
+                    if (targetMoves.Contains(item))
+                    {
+                        targetMoves.Remove(item);
+                    }
                 }
             }
-            return;
         }
-
-        //add all moves
-        foreach (var item in returnedMoves)
-        {
-            if (predictableMoves.Contains(item) == false)
-            {
-                predictableMoves.Add(item);
-            }
-        }
-
-        if (target != null)
-        {
-            predictableMoves.Add(target ?? 0);
-            targetMoves.Add(target ?? 0);
-        }
-
-
-        // if (target != null)
-        // {
-        //     if (considerTarget != false)
-        //     {
-        //         if(considerTarget == true)
-        //         {
-        //             returnedMoves.Remove(target ?? 0);
-        //         }
-        //         targetMoves.Add(target ?? 0);
-        //     }
-        // }
-        // if (considerTarget != true && (considerTarget == false && target == null))
-        // {
-        //     foreach (var item in returnedMoves)
-        //     {
-        //         if (predictableMoves.Contains(item) == false)
-        //         {
-        //             predictableMoves.Add(item);
-        //         }
-        //     }
-        // }
     }
 
     internal bool randomMove()
@@ -272,6 +179,7 @@ public class Troop : MonoBehaviour
 
     internal void Move(int i, bool respectPrediction = false)
     {
+        bool continueGame = true;
         bool _switchTurn = false;
         if (respectPrediction && predictableMoves.Contains(i) == false)
         {
@@ -280,24 +188,28 @@ public class Troop : MonoBehaviour
         }
         if (cells[i].troop != null && cells[i].troop != this && cells[i].troop.isWhite != isWhite)
         {
-            gridGenerator.takeDown(i);
+            gridGenerator.takeDown(cell.index, i, out continueGame);
             _switchTurn = true;
         }
         else if (i != cell.index)
         {
             _switchTurn = true;
         }
-        var movePos = cells[i].transform.position;
-        movePos.y = 2;
-        setCell(i);
-        deselect();
-        transform.DOMove(movePos, Vector3.Distance(transform.position, movePos) * 0.05f).SetEase(Ease.OutCirc).onComplete += () =>
+        if (continueGame)
         {
-            if (_switchTurn)
+            var movePos = cells[i].transform.position;
+            movePos.y = 2;
+            setCell(i);
+            deselect();
+            Debug.Log(troopType + "," + isWhite + "," + i);
+            transform.DOMove(movePos, Vector3.Distance(transform.position, movePos) * 0.02f).SetEase(Ease.Linear).onComplete += () =>
             {
-                switchTurn();
-            }
-        };
+                if (_switchTurn)
+                {
+                    switchTurn();
+                }
+            };
+        }
     }
 
     void setCell(int i)
